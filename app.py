@@ -18,6 +18,7 @@ class SQL_LLM:
             self.retriever = self.vectorstore.as_retriever()
             API_KEY=os.environ["API_KEY"]
             self.password=os.environ["password"]
+            self.host = os.environ['host']
             # if 'history' not in st.session_state: #Used to pass into the LLM to remind previous conversations.
             #     st.session_state.history = []
             #instantiating the Gemini LLM
@@ -93,7 +94,7 @@ class SQL_LLM:
                 dbname='odoo17', 
                 user='odoo17', 
                 password=self.password, 
-                host='5.2.89.3',  
+                host=self.host,  
                 port='5432'        
             )
             cur = conn.cursor()
