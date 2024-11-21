@@ -5,6 +5,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.runnables import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
+import psycopg2
 
 import os
 from dotenv import load_dotenv
@@ -16,8 +17,9 @@ class SQL_LLM:
             self.vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=self.embeddings)
             self.retriever = self.vectorstore.as_retriever()
             API_KEY=os.environ["API_KEY"]
-            if 'history' not in st.session_state: #Used to pass into the LLM to remind previous conversations.
-                st.session_state.history = []
+            self.password=os.environ["password"]
+            # if 'history' not in st.session_state: #Used to pass into the LLM to remind previous conversations.
+            #     st.session_state.history = []
             #instantiating the Gemini LLM
             self.llm = ChatGoogleGenerativeAI( 
                 model="gemini-1.5-flash",
@@ -33,10 +35,10 @@ class SQL_LLM:
             return
     
 
-    def get_sql_command(self, question, history):
+    def get_sql_command(self, question):
         """
         The function responsible for providing the SQL command based on the user's question. 
-        Input: Schema of the database, history of the previous conversations."""
+        Input: Question by the user"""
         try:
             #Template that pass to the LLM to provide answers as per the user request. 
             template = """
@@ -55,12 +57,14 @@ class SQL_LLM:
                                 | self.llm
                                 | StrOutputParser()
                             )
+            answer = retriever_chain.invoke(question)
+            return answer
 
         except Exception as e:
             st.error(f"Error in generating SQL command {e}")
             return ''
         
-    def get_user_answer(self, question, sql_command, sql_answer):
+    def get_user_answer(self, question, sql_answer):
         """
         This function will help to rewrite the answer provided by database to a user friendly manner. 
         Because after geting the SQL query from LLM teh database will give an answer and it will not be user firendly. """
@@ -75,12 +79,74 @@ class SQL_LLM:
         """
         prompt_template_two = ChatPromptTemplate.from_template(prompt_two)
         chain = prompt_template_two | self.llm #chain
-        response = chain.invoke({'question':question, 'sql':sql_command, 'sql_answer':sql_answer}) #invoking of chain with the required parameters. 
+        response = chain.invoke({'question':question, 'sql_answer':sql_answer}) #invoking of chain with the required parameters. 
         return response.content #extracting the answer only
+    
+    def read_sql_query(self, sql):
+        """
+        Function to connect to the PostgreSQL database and run the provided SQL command.
+        Input: SQL command, database name, username, and password for the PostgreSQL database
+        """
+        try:
+            # Connect to the PostgreSQL database
+            conn = psycopg2.connect(
+                dbname='odoo17', 
+                user='odoo17', 
+                password=self.password, 
+                host='5.2.89.3',  
+                port='5432'        
+            )
+            cur = conn.cursor()
+            # Execute the provided SQL query
+            cur.execute(sql)
+            rows = cur.fetchall()  # Fetch all results of the query
+            conn.commit()  # Commit the transaction (optional, depending on your needs)
+        except psycopg2.Error as e:
+            st.error(f"Database Error: {e}")
+            rows = []
+        except Exception as e:
+            st.error(f"Error executing SQL: {e}")
+            rows = []
+        finally:
+            if conn:
+                conn.close()  # Close the database connection
+            return rows
+
+
+
+    def chat(self, prompt):
+        """
+        A single function to do all the tasks. All the functions are defined here in a step by step manner
+        Input: The user question (directly from the chatbox)"""
+        try:
+            # st.session_state.history.append(prompt) #chat history
+            sql_command = self.get_sql_command(prompt) #calling the function to get SQL command from LLM            
+            st.write(sql_command) #To show the provided SQL command by the LLM (Not required for the user, but to make sure to the developer that the correct SQL query)           
+            # sql_answer = self.read_sql_query(sql_command) #To get answer from Database
+
+            # final = self.get_user_answer(prompt, sql_answer) #Change the answer as per the user question
+            # print(st.session_state.history)
+            # return final
+        except Exception as e:
+                st.error(f"Error occured {e}")
     
 
 
 
 
-s=SQL_LLM()
-print(s.embeddings)
+sql=SQL_LLM()
+try:
+    #streamlit app
+    if prompt := st.chat_input("Ask a SQL question"): 
+        # Display user message in chat message container
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        # Get response from the chat method
+        final = sql.chat(prompt)
+        
+        # Display LLM  response in chat message container
+        with st.chat_message("ai"):
+            st.markdown(final)
+except Exception as e:
+    st.error(f"Error in processing user input")
