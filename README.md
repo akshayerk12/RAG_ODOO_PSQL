@@ -14,4 +14,3 @@ pip install -r requirements.txt
 ```python
 streamlit run app.py
 ```
-## But currently the project is not connected with the Odoo PSQL database, but can generate the SQL commands based on the table names and column names of the Odoo database with RAG. 
